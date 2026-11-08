@@ -9,7 +9,7 @@ Mở:  http://localhost:5000
 - Mỗi game chỉ giữ 10 phiên gần nhất
 - Đã BỎ SumClub
 - Sunwin: chỉ giữ sicbo (đã bỏ tx)
-- Đã thêm: Baccarat, Haywin (Markov), XDLC (79 algo chẵn lẻ)
+- Đã thêm: Baccarat (đa bàn C1..C21), Haywin, XDLC — JSON unified
 """
 
 import os
@@ -30,29 +30,41 @@ builtins._sload = lambda name: []
 builtins._ssave = lambda name, data: None
 
 # ============================================================
-# 2) IMPORT 15 FILE GAME
+# 2) IMPORT CÁC MODULE GAME — thiếu file nào skip file đó
 # ============================================================
-game789 = importlib.import_module('789')
-
-import b52
-import baccarat
-import betvip
-import haywin
-import hitclub
-import lc79
-import luck8
-import max789
-import rikvip
-import sao789
-import son789
-import sunwin
-import xdlc
-import xocdia88
-
-MODULES = [
-    game789, b52, baccarat, betvip, haywin, hitclub, lc79, luck8,
-    max789, rikvip, sao789, son789, sunwin, xdlc, xocdia88
+MODULE_NAMES = [
+    '789', 'b52', 'baccarat', 'betvip', 'haywin', 'hitclub',
+    'lc79', 'luck8', 'max789', 'rikvip', 'sao789', 'son789',
+    'sunwin', 'xdlc', 'xocdia88',
 ]
+
+MODULES = []
+MISSING = []
+
+for name in MODULE_NAMES:
+    try:
+        m = importlib.import_module(name)
+        if not hasattr(m, 'bp'):
+            print(f"  ⚠️  {name}.py thiếu biến 'bp' — bỏ qua")
+            MISSING.append(name)
+            continue
+        if not hasattr(m, 'start_background'):
+            print(f"  ⚠️  {name}.py thiếu 'start_background()' — bỏ qua")
+            MISSING.append(name)
+            continue
+        MODULES.append(m)
+    except ModuleNotFoundError:
+        print(f"  ❌ Thiếu file: {name}.py")
+        MISSING.append(name)
+    except Exception as e:
+        print(f"  ❌ Lỗi import {name}.py: {e}")
+        MISSING.append(name)
+
+if MISSING:
+    print(f"\n⚠️  Có {len(MISSING)} module thiếu/lỗi: {', '.join(MISSING)}")
+    print("   Server vẫn chạy với các module còn lại.\n")
+else:
+    print(f"✅ Import OK: {len(MODULES)} module\n")
 
 # ============================================================
 # 3) CHỈ GIỮ 10 PHIÊN GẦN NHẤT
@@ -63,36 +75,33 @@ for m in MODULES:
     if hasattr(m, 'MAX_HISTORY'):
         m.MAX_HISTORY = MAX_MEMORY
 
-# Patch sunwin
+# Patch sunwin (dùng slice cứng)
 try:
-    _orig_commit = sunwin._commit_tx
-    def _patched_commit(sid, d1, d2, d3, source):
-        _orig_commit(sid, d1, d2, d3, source)
-        if len(sunwin.tx_history) > MAX_MEMORY:
-            del sunwin.tx_history[MAX_MEMORY:]
-    sunwin._commit_tx = _patched_commit
-    print("[Patch] sunwin._commit_tx -> 10 phiên")
+    if 'sunwin' in [m.__name__ for m in MODULES]:
+        _sw = importlib.import_module('sunwin')
+        _orig_commit = _sw._commit_tx
+        def _patched_commit(sid, d1, d2, d3, source):
+            _orig_commit(sid, d1, d2, d3, source)
+            if len(_sw.tx_history) > MAX_MEMORY:
+                del _sw.tx_history[MAX_MEMORY:]
+        _sw._commit_tx = _patched_commit
+        print("[Patch] sunwin._commit_tx -> 10 phiên")
 except Exception as e:
     print(f"[Patch] sunwin: {e}")
 
-# Patch 789
+# Patch 789 (dùng slice cứng)
 try:
-    _orig_parse = game789.parse_tx_data
-    def _patched_parse(msg):
-        _orig_parse(msg)
-        if len(game789.tx_data["lich_su_cuoc"]) > MAX_MEMORY:
-            game789.tx_data["lich_su_cuoc"] = game789.tx_data["lich_su_cuoc"][:MAX_MEMORY]
-    game789.parse_tx_data = _patched_parse
-    print("[Patch] 789.parse_tx_data -> 10 phiên")
+    if '789' in [m.__name__ for m in MODULES]:
+        _g789 = importlib.import_module('789')
+        _orig_parse = _g789.parse_tx_data
+        def _patched_parse(msg):
+            _orig_parse(msg)
+            if len(_g789.tx_data["lich_su_cuoc"]) > MAX_MEMORY:
+                _g789.tx_data["lich_su_cuoc"] = _g789.tx_data["lich_su_cuoc"][:MAX_MEMORY]
+        _g789.parse_tx_data = _patched_parse
+        print("[Patch] 789.parse_tx_data -> 10 phiên")
 except Exception as e:
     print(f"[Patch] 789: {e}")
-
-# Patch haywin
-try:
-    haywin.MAX_HISTORY = MAX_MEMORY
-    print("[Patch] haywin.MAX_HISTORY = 10")
-except Exception as e:
-    print(f"[Patch] haywin: {e}")
 
 # ============================================================
 # 4) FLASK APP
@@ -344,7 +353,7 @@ footer{border-top:1px solid var(--line);background:rgba(8,9,14,.6)}
   </div>
   <div class="stats">
     <div class="stat"><b>15</b><span>GAME API</span></div>
-    <div class="stat"><b>31</b><span>ENDPOINT</span></div>
+    <div class="stat"><b>30</b><span>ENDPOINT</span></div>
     <div class="stat"><b>10</b><span>PHIÊN LƯU</span></div>
     <div class="stat"><b>24/7</b><span>HỖ TRỢ</span></div>
   </div>
@@ -461,11 +470,10 @@ const GAMES = [
     ]
   },
   {
-    name:'Baccarat', sub:'Vua bài cổ điển', img:'baccarat.png', logo:'BC',
+    name:'Baccarat', sub:'Vua bài cổ điển — tất cả bàn C1..C21', img:'baccarat.png', logo:'BC',
     c1:'#dc2626', c2:'#7c3aed', tags:['new','vip'], players:'53K',
     endpoints:[
-      { mode:'bac', path:'/baccarat/api/baccarat' },
-      { mode:'bac', path:'/baccarat/api/latest' }
+      { mode:'bac', path:'/baccarat/api/baccarat' }
     ]
   },
   {
@@ -477,7 +485,7 @@ const GAMES = [
     ]
   },
   {
-    name:'Haywin', sub:'Markov Analyzer (Tài Xỉu / MD5)', img:'haywin.png', logo:'HW',
+    name:'Haywin', sub:'Lịch sử Tài Xỉu / MD5', img:'haywin.png', logo:'HW',
     c1:'#0ea5e9', c2:'#06b6d4', tags:['new','hot'], players:'67K',
     endpoints:[
       { mode:'tx',    path:'/haywin/api/taixiu' },
@@ -558,7 +566,7 @@ const GAMES = [
     ]
   },
   {
-    name:'XDLC (Xóc Đĩa Chẵn Lẻ)', sub:'79 thuật toán chẵn lẻ siêu cấp', img:'xdlc.png', logo:'XL',
+    name:'XDLC (Xóc Đĩa Chẵn Lẻ)', sub:'Lịch sử chẵn / lẻ theo phiên', img:'xdlc.png', logo:'XL',
     c1:'#ec4899', c2:'#8b5cf6', tags:['new','vip'], players:'41K',
     endpoints:[
       { mode:'xdlc', path:'/xdlc/api/xdlc' }
@@ -830,32 +838,37 @@ def serve_static(filename):
 # 7) KHỞI ĐỘNG WORKERS
 # ============================================================
 def start_all():
+    ok, fail = 0, 0
     for m in MODULES:
         try:
             m.start_background()
             print(f"  ✅ {m.__name__}")
+            ok += 1
         except Exception as e:
             print(f"  ❌ {m.__name__}: {e}")
+            fail += 1
+    print(f"\n📊 Workers: {ok} OK / {fail} lỗi / {len(MISSING)} thiếu file\n")
 
 # ============================================================
 # 8) MAIN
 # ============================================================
 if __name__ == '__main__':
     print("=" * 60)
-    print("🎮 GameAPI Hub — 15 game (bỏ SumClub, thêm Baccarat/Haywin/XDLC)")
+    print(f"🎮 GameAPI Hub — {len(MODULES)}/{len(MODULE_NAMES)} game khả dụng")
     print("=" * 60)
-    print("⏳ Đang khởi động các worker...")
+    print("⏳ Đang khởi động các worker...\n")
 
     start_all()
 
+    port = int(os.environ.get('PORT', 5000))
     print("=" * 60)
-    print("🚀 Server sẵn sàng:  http://localhost:5000")
+    print(f"🚀 Server sẵn sàng:  http://localhost:{port}")
     print("💡 Chỉ giữ 10 phiên gần nhất — không lưu file JSON")
     print("=" * 60)
 
     app.run(
         host='0.0.0.0',
-        port=5000,
+        port=port,
         debug=False,
         threaded=True,
         use_reloader=False
